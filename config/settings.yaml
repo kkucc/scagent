@@ -1,0 +1,9 @@
+agent_settings:
+  evolution_attempts: 3
+
+llm:
+  model_name: "gpt-4o"
+
+workspace:
+  backend: "local"
+  timeout_seconds: 10
