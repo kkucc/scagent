@@ -8,7 +8,10 @@
 # from stem_core.safeguards import SafeguardedEvolution
 # from stem_core.workspace import LocalWorkspace
 
-# logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(levelname)s: %(message)s",
+)
 
 
 # def execute_evaluation() -> None:
@@ -52,25 +55,32 @@ from stem_core.interfaces import Task, Workspace
 from stem_core.safeguards import SafeguardedEvolution
 from stem_core.workspace import LocalWorkspace
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(levelname)s: %(message)s",
+)
 
 
 class ConfiguredWorkspace:
     """
-    Workspace adapter overriding any caller-provided value
+    force default timeout from config
     """
 
     def __init__(self, inner_workspace: Workspace, default_timeout: int):
         self._inner = inner_workspace
         self._default_timeout = int(default_timeout)
 
-    def execute(self, code: str, timeout_seconds: int = 5):
-        # timeout
-        return self._inner.execute(code, timeout_seconds=self._default_timeout)
+    def execute(self, code: str, timeout_seconds: int = 5, requires_network: bool = False):
+        # force timeout from config
+        return self._inner.execute(
+            code,
+            timeout_seconds=self._default_timeout,
+            requires_network=requires_network,
+        )
 
 
 def load_configuration(config_path: str) -> dict:
-    """Loads the application config from a YAML file."""
+    """load config from yaml"""
     try:
         with open(config_path, "r", encoding="utf-8") as f:
             return yaml.safe_load(f)
@@ -84,7 +94,7 @@ def load_configuration(config_path: str) -> dict:
 
 def execute_evaluation(config: dict) -> None:
     """
-    Assembles and runs scagent based on config
+    run agent using config
     """
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
@@ -116,7 +126,7 @@ def execute_evaluation(config: dict) -> None:
         llm=chat_model,
         workspace=isolated_workspace,
     )
-    # Diff and Eval
+    # diff and eval
     domain_signal = "Application Programming Interface Quality Assurance Testing"
     specialized_agent = stem_cell.differentiate(task_domain=domain_signal)
 

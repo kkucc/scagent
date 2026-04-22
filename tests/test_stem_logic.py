@@ -19,14 +19,18 @@ from stem_core.safeguards import SafeguardedEvolution
 class MockFailingWorkspace(Workspace):
     """always reports failure."""
 
-    def execute(self, code: str, timeout_seconds: int = 5) -> ExecutionFeedback:
+    def execute(
+        self, code: str, timeout_seconds: int = 5, requires_network: bool = False
+    ) -> ExecutionFeedback:
         return ExecutionFeedback(output="", error="SyntaxError: Invalid syntax", successful=False)
 
 
 class MockSuccessfulWorkspace(Workspace):
     """always reports success."""
 
-    def execute(self, code: str, timeout_seconds: int = 5) -> ExecutionFeedback:
+    def execute(
+        self, code: str, timeout_seconds: int = 5, requires_network: bool = False
+    ) -> ExecutionFeedback:
         return ExecutionFeedback(output="Safeguard check passed.", error="", successful=True)
 
 
@@ -38,7 +42,7 @@ def test_safeguard_succeeds_on_first_try():
     initial DNA is valid and passes the safeguard.
     """
     mock_origin_evolution = MagicMock(spec=Evolution)
-    valid_dna = Dna("prompt", "tool", "print('valid')")
+    valid_dna = Dna("prompt", {"tool": "def tool():\n    return 'ok'"}, False)
     mock_origin_evolution.mutate.return_value = valid_dna
 
     successful_workspace = MockSuccessfulWorkspace()
@@ -50,7 +54,8 @@ def test_safeguard_succeeds_on_first_try():
     result_dna = safeguard.mutate("test_domain", EmptyFeedback())
 
     assert result_dna == valid_dna
-    assert isinstance(result_dna.tool_code, str)
+    assert isinstance(result_dna.tools, dict)
+    assert "tool" in result_dna.tools
     mock_origin_evolution.mutate.assert_called_once()
 
 
@@ -59,8 +64,8 @@ def test_safeguard_recovers_from_failure():
     first DNA is invalid, but the second one is valid.
     """
     mock_origin_evolution = MagicMock(spec=Evolution)
-    invalid_dna = Dna("prompt", "tool", "print(invalid)")
-    valid_dna = Dna("prompt_fixed", "tool_fixed", "print('valid')")
+    invalid_dna = Dna("prompt", {"tool": "print(invalid)"}, False)
+    valid_dna = Dna("prompt_fixed", {"tool_fixed": "def tool_fixed():\n    return 'ok'"}, False)
 
     # mock will return bad DNA first, then good DNA on the second call
     mock_origin_evolution.mutate.side_effect = [invalid_dna, valid_dna]
@@ -89,7 +94,7 @@ def test_safeguard_fails_after_max_attempts():
     safeguard raises a RuntimeError if it cannot produce valid DNA
     """
     mock_origin_evolution = MagicMock(spec=Evolution)
-    invalid_dna = Dna("prompt", "tool", "print(invalid)")
+    invalid_dna = Dna("prompt", {"tool": "print(invalid)"}, False)
     mock_origin_evolution.mutate.return_value = invalid_dna
 
     failing_workspace = MockFailingWorkspace()
@@ -102,7 +107,7 @@ def test_safeguard_fails_after_max_attempts():
         safeguard.mutate("test_domain", EmptyFeedback())
 
     assert mock_origin_evolution.mutate.call_count == 2
-    assert isinstance(invalid_dna.tool_name, str)
+    assert isinstance(invalid_dna.tools, dict)
 
 
 def test_stem_cell_differentiation_process():
@@ -111,7 +116,7 @@ def test_stem_cell_differentiation_process():
     """
     mock_evolution = MagicMock(spec=Evolution)
     mock_llm = MagicMock(spec=ChatModel)
-    final_dna = Dna("final_prompt", "final_tool", "print('final')")
+    final_dna = Dna("final_prompt", {"final_tool": "def final_tool():\n    return 'final'"}, False)
     mock_evolution.mutate.return_value = final_dna
 
     workspace = MockSuccessfulWorkspace()

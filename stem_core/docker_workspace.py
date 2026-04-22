@@ -57,7 +57,9 @@ class DockerWorkspace(Workspace):
         self._python = python_executable
         self._pip_quiet = pip_quiet
 
-    def execute(self, code: str, timeout_seconds: int = 5) -> Feedback:
+    def execute(
+        self, code: str, timeout_seconds: int = 5, requires_network: bool = False
+    ) -> Feedback:
         """
         Execute provided Python code in an ephemeral Docker container.
 
@@ -82,7 +84,8 @@ class DockerWorkspace(Workspace):
                     successful=False,
                 )
 
-            docker_cmd = self._build_docker_command(temp_dir=temp_dir)
+            net_mode = "bridge" if requires_network else "none"
+            docker_cmd = self._build_docker_command(temp_dir=temp_dir, network_mode=net_mode)
 
             try:
                 result = subprocess.run(
@@ -112,7 +115,7 @@ class DockerWorkspace(Workspace):
             except Exception as exc:
                 return ExecutionFeedback(output="", error=str(exc), successful=False)
 
-    def _build_docker_command(self, temp_dir: str) -> List[str]:
+    def _build_docker_command(self, temp_dir: str, network_mode: str) -> List[str]:
         """
         Construct a docker run command that:
           - Mounts temp_dir to the container's workdir
@@ -121,8 +124,8 @@ class DockerWorkspace(Workspace):
         """
         cmd: List[str] = ["docker", "run", "--rm"]
 
-        if self._network_mode:
-            cmd += ["--network", self._network_mode]
+        if network_mode:
+            cmd += ["--network", network_mode]
 
         # Bind mount temp_dir to container
         mount_flag = f"{temp_dir}:{self._workdir_in_container}"

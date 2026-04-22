@@ -54,12 +54,17 @@ class ExecutionFeedback(Feedback):
 @dataclasses.dataclass(frozen=True)
 class Dna:
     system_prompt: str
-    tool_name: str
-    tool_code: str
+    tools: dict[str, str]
+    requires_network: bool
 
 
 class Workspace(typing.Protocol):
-    def execute(self, code: str, timeout_seconds: int = 5) -> Feedback:
+    def execute(
+        self,
+        code: str,
+        timeout_seconds: int = 5,
+        requires_network: bool = False,
+    ) -> Feedback:
         raise NotImplementedError
 
 

@@ -1,46 +1,39 @@
-# import logging
-
-# from stem_core.interfaces import ChatModel, Dna, Evolution, Feedback
-
-# logger = logging.getLogger(__name__)
-
-
-# class PromptDrivenEvolution(Evolution):
-#     def __init__(self, llm: ChatModel):
-#         self._llm = llm
-
-#     def mutate(self, domain_signal: str, feedback: Feedback) -> Dna:
-#         system_prompt = (
-#             "You are the biological core of a Stem Cell AI. "
-#             f"Your environment signal is: '{domain_signal}'. "
-#             "You must differentiate into a Specialized Agent. "
-#             "Provide the following strictly in JSON format: "
-#             "1. 'system_prompt': The prompt for the specialized agent. "
-#             "2. 'tool_name': The name of the Python function it needs. "
-#             "3. 'tool_code': Valid Python code for this function. Use stdlib and 'requests' only."
-#         )
-
-#         user_prompt = "Generate the DNA for differentiation."
-
-#         if not feedback.is_successful():
-#             user_prompt += (
-#                 " Warning. Previous mutation failed during execution. "
-#                 f"Execution details: {feedback.execution_details()} "
-#                 "Rewrite the tool code to resolve this error."
-#             )
-
-#         response_dictionary = self._llm.ask_json(system_prompt, user_prompt)
-
-#         return Dna(
-#             system_prompt=response_dictionary.get("system_prompt", ""),
-#             tool_name=response_dictionary.get("tool_name", "custom_tool"),
-#             tool_code=response_dictionary.get("tool_code", ""),
-#         )
+import ast
 import logging
+from typing import Dict
 
 from stem_core.interfaces import ChatModel, Dna, Evolution, Feedback
 
 logger = logging.getLogger(__name__)
+
+
+class SecurityError(Exception):
+    pass
+
+
+class SecurityASTVisitor(ast.NodeVisitor):
+    # check imports only
+    def __init__(self, allowed_bases: set[str]):
+        self._allowed = allowed_bases
+
+    def visit_Import(self, node: ast.Import):
+        # deny anything not in whitelist
+        for alias in node.names:
+            full = alias.name
+            base = full.split(".")[0]
+            if full not in self._allowed and base not in self._allowed:
+                raise SecurityError(f"import '{full}' not allowed")
+        self.generic_visit(node)
+
+    def visit_ImportFrom(self, node: ast.ImportFrom):
+        # forbid relative imports
+        if getattr(node, "level", 0) and node.level > 0:
+            raise SecurityError("relative imports are strictly forbidden in generated dna")
+        module_full = node.module or ""
+        base = module_full.split(".")[0] if module_full else ""
+        if module_full and (module_full not in self._allowed and base not in self._allowed):
+            raise SecurityError(f"from '{module_full}' not allowed")
+        self.generic_visit(node)
 
 
 class PromptDrivenEvolution(Evolution):
@@ -52,61 +45,59 @@ class PromptDrivenEvolution(Evolution):
             "You are the biological core of a Stem Cell AI. "
             f"Your environment signal is: '{domain_signal}'. "
             "You must differentiate into a Specialized Agent. "
-            "Provide the following strictly in JSON format: "
+            "Return strictly a JSON object with: "
             "1. 'system_prompt': The prompt for the specialized agent. "
-            "2. 'tool_name': The name of the Python function it needs. "
-            "3. 'tool_code': Valid Python code for this function. Use stdlib and 'requests' only. DO NOT wrap the code in markdown blocks."
+            "2. 'tools': An object whose keys are Python function names and "
+            "values are the full, valid Python code for those functions. "
+            "3. 'requires_network': boolean true only if external internet is needed "
+            "(not for localhost) "
+            "Only use Python standard library and 'requests'. Do NOT wrap code in markdown fences."
         )
 
-        user_prompt = "Generate the DNA for differentiation."
+        user_prompt = (
+            "Generate the DNA (system_prompt + tools + requires_network) for differentiation."
+        )
 
         if not feedback.is_successful():
             user_prompt += (
                 " Warning. Previous mutation failed during execution. "
                 f"Execution details: {feedback.execution_details()} "
-                "Rewrite the tool code to resolve this error. Ensure the function name exactly matches 'tool_name'."
+                "Rewrite the tools to resolve this error. "
+                "Ensure each function name exactly matches its definition."
             )
 
         response_dictionary = self._llm.ask_json(system_prompt, user_prompt)
 
-        raw_code = response_dictionary.get("tool_code", "")
-        clean_code = raw_code.replace("```python", "").replace("```", "").strip()
-        # Basic static validation
-        _banned = {
-            "numpy",
-            "pandas",
-            "torch",
-            "tensorflow",
-            "sklearn",
-            "openai",
-            "httpx",
-            "aiohttp",
-            "bs4",
-            "lxml",
-            "matplotlib",
-            "seaborn",
-            "scipy",
-            "PIL",
-            "cv2",
-        }
-        _filtered_lines = []
-        for _line in clean_code.splitlines():
-            _s = _line.strip()
-            _deny = False
-            if _s.startswith("import "):
-                _base = _s[len("import ") :].split(",")[0].strip().split(".")[0]
-                if _base in _banned and _base != "requests":
-                    _deny = True
-            elif _s.startswith("from "):
-                _base = _s[len("from ") :].split("import", 1)[0].strip().split(".")[0]
-                if _base in _banned and _base != "requests":
-                    _deny = True
-            if not _deny:
-                _filtered_lines.append(_line)
-        clean_code = "\n".join(_filtered_lines)
+        tools_raw = response_dictionary.get("tools", {})
+        if not isinstance(tools_raw, dict):
+            raise ValueError("Invalid LLM response: 'tools' must be a dictionary.")
 
+        # sanitize tool src quick
+        tools_clean: Dict[str, str] = {}
+        for name, src in tools_raw.items():
+            if not isinstance(name, str) or not isinstance(src, str):
+                raise ValueError("Invalid tools entry: keys and values must be strings.")
+            cleaned = src.replace("```python", "").replace("```", "").strip()
+            tools_clean[name] = cleaned
+
+        # ast whitelist check
+        combined_source = "\n\n".join(tools_clean.values())
+        try:
+            tree = ast.parse(combined_source)
+        except SyntaxError as e:
+            # bubble syntax err early
+            raise e
+
+        # allowed base modules only
+        allowed_bases = {"requests", "json", "urllib", "re", "time", "datetime"}
+        SecurityASTVisitor(allowed_bases).visit(tree)
+
+        # net flag from llm
+        req_net = response_dictionary.get("requires_network", False)
+        if not isinstance(req_net, bool):
+            raise ValueError("Invalid LLM response: 'requires_network' must be a boolean.")
         return Dna(
             system_prompt=response_dictionary.get("system_prompt", ""),
-            tool_name=response_dictionary.get("tool_name", "custom_tool"),
-            tool_code=clean_code,
+            tools=tools_clean,
+            requires_network=req_net,
         )

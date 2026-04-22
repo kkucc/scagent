@@ -77,13 +77,16 @@ class SpecializedCell(Agent):
         self._workspace = workspace
 
     def act(self, task: Task) -> Result:
-        logger.info("Specialized cell planning task execution.")
+        logger.info("planning task exec")
+
+        combined_tools_code = "\n\n".join(self._dna.tools.values())
+        available_functions = ", ".join(self._dna.tools.keys())
 
         user_prompt = (
             f"Your task: {task.description}\n"
-            f"You have this verified Python code loaded:\n{self._dna.tool_code}\n\n"
-            f"Write a short Python script that calls your function '{self._dna.tool_name}' "
-            "to actually execute the task and print the final answer to standard output. "
+            f"You have these verified Python tools (functions): {available_functions}\n"
+            f"Source code:\n{combined_tools_code}\n\n"
+            "Write a short Python script that uses these functions to execute the task and print the final answer to standard output. "
             "Output strictly a JSON object with a 'script_to_run' key containing the code."
         )
 
@@ -91,17 +94,19 @@ class SpecializedCell(Agent):
             response_dictionary = self._llm.ask_json(self._dna.system_prompt, user_prompt)
             script_to_run = response_dictionary.get("script_to_run", "")
 
-            logger.info("Executing actual task script in workspace...")
-            full_executable_code = f"{self._dna.tool_code}\n\n{script_to_run}"
+            logger.info("run script in workspace")
+            full_executable_code = f"{combined_tools_code}\n\n{script_to_run}"
 
-            execution = self._workspace.execute(full_executable_code)
+            execution = self._workspace.execute(
+                full_executable_code, requires_network=self._dna.requires_network
+            )
 
             return Result(
                 content=execution.execution_details(),
                 is_successful=execution.is_successful(),
             )
         except Exception as exception:
-            logger.error("Task processing encountered a fatal error.")
+            logger.error("task failed hard")
             return Result(content=str(exception), is_successful=False)
 
 
@@ -112,10 +117,10 @@ class StemCell:
         self._workspace = workspace
 
     def differentiate(self, task_domain: str) -> SpecializedCell:
-        logger.info("Stem cell receiving environmental signal. Beginning differentiation.")
+        logger.info("got signal, start diff")
 
         initial_feedback = EmptyFeedback()
         stable_dna = self._evolution.mutate(task_domain, initial_feedback)
 
-        logger.info("Differentiation complete. Assembling specialized cell.")
+        logger.info("diff done, build cell")
         return SpecializedCell(dna=stable_dna, llm=self._llm, workspace=self._workspace)

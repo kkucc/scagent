@@ -41,13 +41,14 @@
 #         raise RuntimeError(
 #             "Evolutionary process terminated. Maximum mutation attempts reached."
 #         )
-import logging
+import logging  # logging basic
 
 from stem_core.interfaces import Dna, Evolution, Feedback, Workspace
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)  # log stuff
 
 
+# retry + validate dna
 class SafeguardedEvolution(Evolution):
     def __init__(
         self,
@@ -60,15 +61,17 @@ class SafeguardedEvolution(Evolution):
         self._workspace = workspace
         self._max_attempts = max_attempts
         self._timeout_seconds = timeout_seconds
-        self._dna_cache = {}
+        self._dna_cache = {}  # cache dna per domain
 
-    def mutate(self, domain_signal: str, feedback: Feedback) -> Dna:
+    def mutate(self, domain_signal: str, feedback: Feedback) -> Dna:  # main loop
         current_feedback = feedback
-        if getattr(feedback, "is_successful", lambda: False)() and domain_signal in self._dna_cache:
+        if (
+            getattr(feedback, "is_successful", lambda: False)() and domain_signal in self._dna_cache
+        ):  # reuse cached
             logger.info("Using cached DNA for domain: %s", domain_signal)
             return self._dna_cache[domain_signal]
 
-        for attempt in range(1, self._max_attempts + 1):
+        for attempt in range(1, self._max_attempts + 1):  # retries
             logger.info(
                 "Initiating evolution attempt %d for domain signal: %s",
                 attempt,
@@ -77,14 +80,18 @@ class SafeguardedEvolution(Evolution):
 
             dna = self._origin.mutate(domain_signal, current_feedback)
 
-            validation_code = (
-                f"{dna.tool_code}\n\n"
-                f"if '{dna.tool_name}' not in locals() and '{dna.tool_name}' not in globals():\n"
-                f"    raise NameError(\"Function '{dna.tool_name}' was not found.\")\n"
+            combined_tools_code = "\n\n".join(dna.tools.values())  # glue tools src
+            tool_names = ", ".join([f"'{name}'" for name in dna.tools.keys()])  # tool names
+            validation_code = (  # check all funcs exist
+                f"{combined_tools_code}\n\n"
+                f"_expected = [{tool_names}]\n"
+                "_missing = [name for name in _expected if name not in locals() and name not in globals()]\n"
+                "if _missing:\n"
+                "    raise NameError('Functions not found: ' + ', '.join(_missing))\n"
             )
 
-            test_feedback = self._workspace.execute(
-                validation_code, timeout_seconds=self._timeout_seconds
+            test_feedback = self._workspace.execute(  # no net for checks
+                validation_code, timeout_seconds=self._timeout_seconds, requires_network=False
             )
 
             if test_feedback.is_successful():
