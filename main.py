@@ -8,11 +8,6 @@
 # from stem_core.safeguards import SafeguardedEvolution
 # from stem_core.workspace import LocalWorkspace
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(levelname)s: %(message)s",
-)
-
 
 # def execute_evaluation() -> None:
 #     api_key = os.environ.get("OPENAI_API_KEY")

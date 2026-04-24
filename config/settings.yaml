@@ -1,9 +1,9 @@
 agent_settings:
-  evolution_attempts: 3
+  evolution_attempts: 9
 
 llm:
   model_name: "gpt-4o"
 
 workspace:
-  backend: "local"
-  timeout_seconds: 10
+  backend: "docker"
+  timeout_seconds: 40

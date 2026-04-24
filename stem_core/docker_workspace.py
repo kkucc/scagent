@@ -28,9 +28,9 @@ logger = logging.getLogger(__name__)
 class DockerWorkspace(Workspace):
     def __init__(
         self,
-        image: str = "python:3.11-slim",
+        image: str = "stem-runner:py311",
         *,
-        install_requests: bool = True,
+        install_requests: bool = False,
         extra_pip_packages: Optional[Iterable[str]] = None,
         network_mode: str = "none",  # "none" (default), "bridge", etc.
         readonly_mount: bool = True,
@@ -72,7 +72,8 @@ class DockerWorkspace(Workspace):
         Returns:
           ExecutionFeedback with stdout, stderr, and success flag.
         """
-        with tempfile.TemporaryDirectory() as temp_dir:
+        with tempfile.TemporaryDirectory(dir=os.getcwd(), prefix="stem_ws_") as temp_dir:
+            logger.debug("docker temp dir: %s", temp_dir)
             runner_host_path = os.path.join(temp_dir, "runner.py")
             try:
                 with open(runner_host_path, "w", encoding="utf-8") as f:
@@ -85,6 +86,7 @@ class DockerWorkspace(Workspace):
                 )
 
             net_mode = "bridge" if requires_network else "none"
+            logger.debug("docker network mode: %s", net_mode)
             docker_cmd = self._build_docker_command(temp_dir=temp_dir, network_mode=net_mode)
 
             try:

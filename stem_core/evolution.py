@@ -51,7 +51,10 @@ class PromptDrivenEvolution(Evolution):
             "values are the full, valid Python code for those functions. "
             "3. 'requires_network': boolean true only if external internet is needed "
             "(not for localhost) "
-            "Only use Python standard library and 'requests'. Do NOT wrap code in markdown fences."
+            "CRITICAL RULES: DO NOT import or use external libraries such as 'jsonschema', 'pydantic', 'logging', 'threading', or 'concurrent.futures'. "
+            "Only use Python standard library and 'requests'. Use built-in 'json', 'urllib', 're', 'time', 'datetime', and simple if-statements for validation. "
+            "STRUCTURE RULES: All code must be inside top-level function definitions only. No top-level execution, no test blocks, no 'if __name__ == \"__main__\"', no network or I/O at import time. No module-level variables that perform computations or requests. "
+            "Do NOT wrap code in markdown fences."
         )
 
         user_prompt = (
@@ -91,6 +94,19 @@ class PromptDrivenEvolution(Evolution):
         # allowed base modules only
         allowed_bases = {"requests", "json", "urllib", "re", "time", "datetime"}
         SecurityASTVisitor(allowed_bases).visit(tree)
+
+        # no top-level execution
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.Import, ast.ImportFrom)):
+                continue
+            if (
+                isinstance(node, ast.Expr)
+                and isinstance(getattr(node, "value", None), ast.Constant)
+                and isinstance(node.value.value, str)
+            ):
+                # allow module docstring
+                continue
+            raise SecurityError("top-level code is forbidden, put all logic inside functions")
 
         # net flag from llm
         req_net = response_dictionary.get("requires_network", False)

@@ -95,7 +95,8 @@ class SpecializedCell(Agent):
             script_to_run = response_dictionary.get("script_to_run", "")
 
             logger.info("run script in workspace")
-            full_executable_code = f"{combined_tools_code}\n\n{script_to_run}"
+            prelude = "import json, time, datetime, re, requests\n"
+            full_executable_code = f"{prelude}{combined_tools_code}\n\n{script_to_run}"
 
             execution = self._workspace.execute(
                 full_executable_code, requires_network=self._dna.requires_network

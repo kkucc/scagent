@@ -1,7 +1,7 @@
 .venv
 venv/
-README.md
-r.md
+REAbME.md
+rd*.md
 pyproject.toml
 !*.gitignore
 .pytest_cache/

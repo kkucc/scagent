@@ -43,7 +43,7 @@
 #         )
 import logging  # logging basic
 
-from stem_core.interfaces import Dna, Evolution, Feedback, Workspace
+from stem_core.interfaces import Dna, Evolution, ExecutionFeedback, Feedback, Workspace
 
 logger = logging.getLogger(__name__)  # log stuff
 
@@ -65,11 +65,7 @@ class SafeguardedEvolution(Evolution):
 
     def mutate(self, domain_signal: str, feedback: Feedback) -> Dna:  # main loop
         current_feedback = feedback
-        if (
-            getattr(feedback, "is_successful", lambda: False)() and domain_signal in self._dna_cache
-        ):  # reuse cached
-            logger.info("Using cached DNA for domain: %s", domain_signal)
-            return self._dna_cache[domain_signal]
+        # cache disabled to avoid reusing untested dna
 
         for attempt in range(1, self._max_attempts + 1):  # retries
             logger.info(
@@ -78,7 +74,14 @@ class SafeguardedEvolution(Evolution):
                 domain_signal,
             )
 
-            dna = self._origin.mutate(domain_signal, current_feedback)
+            try:
+                dna = self._origin.mutate(domain_signal, current_feedback)
+            except Exception as e:
+                # origin failed before sandbox validation (e.g., SecurityError, SyntaxError)
+                # feed back as failed execution to drive next mutation
+                logger.warning("Origin mutation failed before validation: %s", str(e))
+                current_feedback = ExecutionFeedback(output="", error=str(e), successful=False)
+                continue
 
             combined_tools_code = "\n\n".join(dna.tools.values())  # glue tools src
             tool_names = ", ".join([f"'{name}'" for name in dna.tools.keys()])  # tool names
@@ -96,7 +99,7 @@ class SafeguardedEvolution(Evolution):
 
             if test_feedback.is_successful():
                 logger.info("Safeguard validation passed. DNA sequence is stable.")
-                self._dna_cache[domain_signal] = dna
+                # cache disabled
                 return dna
 
             logger.warning(
